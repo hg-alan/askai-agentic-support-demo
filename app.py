@@ -18,6 +18,8 @@ st.markdown(
     padding-bottom: 1.5rem;
     max-width: 1000px;
 }
+
+/* Headings */
 h1 {
     font-size: 2.4rem;
     margin-bottom: 0.25rem;
@@ -31,10 +33,14 @@ h3 {
     font-size: 1.05rem;
     margin-bottom: 0.35rem;
 }
+
+/* Subtle / helper text */
 .small-muted {
     font-size: 0.9rem;
     color: #9ca3af;
 }
+
+/* Example buttons as pills */
 .stButton > button {
     border-radius: 999px;
     padding: 0.35rem 1.1rem;
@@ -46,6 +52,8 @@ h3 {
     border-color: #4b5563;
     background-color: #111827;
 }
+
+/* Answer box */
 .answer-box {
     padding: 0.9rem 1.0rem;
     border-radius: 10px;
@@ -54,6 +62,8 @@ h3 {
     font-size: 1rem;
     line-height: 1.6;
 }
+
+/* Agent reasoning box */
 .reason-box {
     padding: 0.7rem 1.0rem;
     border-radius: 10px;
@@ -62,13 +72,17 @@ h3 {
     font-size: 0.95rem;
 }
 .reason-box ul {
-    margin: 0.25rem 0 0.25rem 1.1rem;
+    margin: 0.1rem 0 0.2rem 1.1rem;
 }
+
+/* Expanders */
 div[data-testid="stExpander"] {
     border-radius: 10px !important;
     border: 1px solid #27272a !important;
     background-color: #020817 !important;
 }
+
+/* Code blocks inside expanders */
 code, pre {
     font-size: 0.85rem;
 }
@@ -84,7 +98,7 @@ if "index_built" not in st.session_state:
     st.session_state["index_built"] = True
     st.session_state["chunks"] = chunks
 
-# Ensure the controlled input key exists
+# Ensure controlled input key exists
 if "user_question" not in st.session_state:
     st.session_state["user_question"] = ""
 
@@ -137,8 +151,8 @@ with c4:
         example_query = examples["carry_on_escalate"]
 
 # Decide which question to answer this run:
-# - If an example button was clicked, use that.
-# - Otherwise, use whatever is in the text input.
+# - example button (if clicked)
+# - else whatever is in the text input
 current_q = (example_query or st.session_state.get("user_question", "")).strip()
 
 # ---------- Run agent + show answer ----------
@@ -147,35 +161,40 @@ if current_q:
     with st.spinner("Thinking (agent may escalate)..."):
         answer, context, meta = answer_question(current_q)
 
-    # Answer
+    # 💬 Answer
     st.markdown("## 💬 Answer")
     st.markdown(f'<div class="answer-box">{answer}</div>', unsafe_allow_html=True)
 
-    # Agent reasoning
+    # 🧠 Agent reasoning
     st.markdown("## 🧠 Agent reasoning")
+
     mode = meta.get("mode")
     ticket = meta.get("ticket") or {}
     retrieved_chunks = meta.get("retrieved_chunks") or []
 
     if mode == "escalated":
-        reasoning_lines = [
-            "- **Decision**: escalate to human (insufficient / unclear docs)",
-            "- **Tool used**: `escalate_ticket`",
-            f"- **Ticket ID**: `{ticket.get('ticket_id', 'n/a')}`",
-            f"- **Assigned team**: {ticket.get('assigned_team', 'Tier-2 Support')}",
+        reasoning_points = [
+            "<li><b>Decision:</b> escalate to human (insufficient / unclear docs)</li>",
+            "<li><b>Tool used:</b> <code>escalate_ticket</code></li>",
+            f"<li><b>Ticket ID:</b> <code>{ticket.get('ticket_id', 'n/a')}</code></li>",
+            f"<li><b>Assigned team:</b> {ticket.get('assigned_team', 'Tier-2 Support')}</li>",
         ]
     else:
-        reasoning_lines = [
-            "- **Decision**: answered directly from retrieved documentation",
-            "- **No escalation triggered**",
+        reasoning_points = [
+            "<li><b>Decision:</b> answered directly from retrieved documentation</li>",
+            "<li><b>No escalation triggered</b></li>",
         ]
 
-    st.markdown(
-        '<div class="reason-box">' + "<br>".join(reasoning_lines) + "</div>",
-        unsafe_allow_html=True,
-    )
+    reasoning_html = f"""
+    <div class="reason-box">
+      <ul>
+        {''.join(reasoning_points)}
+      </ul>
+    </div>
+    """
+    st.markdown(reasoning_html, unsafe_allow_html=True)
 
-    # Retrieved context
+    # 📄 Retrieved context
     with st.expander("📄 Retrieved context (top chunks the agent consulted)", expanded=False):
         if retrieved_chunks:
             for i, chunk in enumerate(retrieved_chunks, start=1):
