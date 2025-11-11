@@ -8,6 +8,87 @@ st.set_page_config(
     layout="wide",
 )
 
+# ---------- Global styles ----------
+
+st.markdown(
+    """
+<style>
+/* Overall padding */
+.block-container {
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
+    max-width: 1000px;
+}
+
+/* Headings */
+h1 {
+    font-size: 2.4rem;
+    margin-bottom: 0.25rem;
+}
+h2 {
+    font-size: 1.3rem;
+    margin-top: 1.75rem;
+    margin-bottom: 0.4rem;
+}
+h3 {
+    font-size: 1.05rem;
+    margin-bottom: 0.35rem;
+}
+
+/* Caption / subtle text */
+.small-muted {
+    font-size: 0.9rem;
+    color: #9ca3af;
+}
+
+/* Pills for example buttons */
+.stButton > button {
+    border-radius: 999px;
+    padding: 0.35rem 1.1rem;
+    border: 1px solid #374151;
+    background-color: transparent;
+}
+.stButton > button:hover {
+    border-color: #4b5563;
+    background-color: #111827;
+}
+
+/* Answer + reasoning containers */
+.answer-box {
+    padding: 0.9rem 1.0rem;
+    border-radius: 10px;
+    background-color: #111827;
+    border: 1px solid #374151;
+    font-size: 1rem;
+    line-height: 1.6;
+}
+.reason-box {
+    padding: 0.7rem 1.0rem;
+    border-radius: 10px;
+    background-color: #020817;
+    border: 1px solid #27272a;
+    font-size: 0.95rem;
+}
+.reason-box ul {
+    margin: 0.25rem 0 0.25rem 1.1rem;
+}
+
+/* Expanders */
+div[data-testid="stExpander"] {
+    border-radius: 10px !important;
+    border: 1px solid #27272a !important;
+    background-color: #020817 !important;
+}
+
+/* Code blocks inside expanders */
+code, pre {
+    font-size: 0.85rem;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 # ---------- One-time index build ----------
 
 if "index_built" not in st.session_state:
@@ -18,112 +99,139 @@ if "index_built" not in st.session_state:
 # ---------- Header ----------
 
 st.title("AskAI Agentic Support Demo")
-st.caption(
-    "RAG + tool-calling agent: answers from internal docs, or autonomously escalates when unsure."
+st.markdown(
+    '<div class="small-muted">'
+    "RAG + tool-calling support agent: answers from internal docs, or escalates transparently when unsure."
+    "</div>",
+    unsafe_allow_html=True,
 )
 
-# ---------- Suggested test questions ----------
+st.markdown("---")
 
-st.markdown("**Try one of these example questions:**")
+# ---------- Ask a question ----------
 
-col1, col2, col3, col4 = st.columns(4)
+st.markdown("#### Ask a question")
+
+question = st.text_input(
+    " ",
+    key="user_question",
+    placeholder="Type a support question, e.g. \"What is your refund policy?\"",
+    label_visibility="collapsed",
+)
+
+# Suggested examples (under the input)
+st.markdown('<div class="small-muted">Or try one of these:</div>', unsafe_allow_html=True)
+
+c1, c2, c3, c4 = st.columns(4)
 
 examples = {
     "refund_docs": "What is your refund policy?",
     "shipping_docs": "How long does express shipping take?",
-    "refund_strict": "Can I get a refund after 6 months?",   # grounded denial, no escalation
-    "carry_on_escalate": "What can I bring in my carry on?",  # out-of-scope → escalation
+    "refund_strict": "Can I get a refund after 6 months?",
+    "carry_on_escalate": "What can I bring in my carry on?",
 }
 
+with c1:
+    if st.button("Refund policy"):
+        st.session_state["user_question"] = examples["refund_docs"]
+with c2:
+    if st.button("Express shipping"):
+        st.session_state["user_question"] = examples["shipping_docs"]
+with c3:
+    if st.button("Refund after 6 months"):
+        st.session_state["user_question"] = examples["refund_strict"]
+with c4:
+    if st.button("Carry-on (escalate)"):
+        st.session_state["user_question"] = examples["carry_on_escalate"]
 
-col1, col2, col3, col4 = st.columns(4)
+# ---------- Run agent + show answer ----------
 
-if col1.button("Refund policy"):
-    st.session_state["user_question"] = examples["refund_docs"]
-if col2.button("Express shipping"):
-    st.session_state["user_question"] = examples["shipping_docs"]
-if col3.button("Refund after 6 months"):
-    st.session_state["user_question"] = examples["refund_strict"]
-if col4.button("Carry-on (escalate)"):
-    st.session_state["user_question"] = examples["carry_on_escalate"]
+if st.session_state.get("user_question"):
+    q = st.session_state["user_question"]
 
-
-# ---------- Show full KB (ground truth) ----------
-
-with st.expander("View full knowledge base (ground truth)"):
-    st.markdown(get_corpus_markdown())
-
-# ---------- Question input ----------
-
-question = st.text_input(
-    "Ask a support question:",
-    key="user_question",
-    placeholder="e.g. What is your refund policy?",
-)
-
-# ---------- Run agent ----------
-
-if question:
     with st.spinner("Thinking (agent may escalate)..."):
-        answer, context, meta = answer_question(question)
+        answer, context, meta = answer_question(q)
 
-    st.subheader("Answer")
-    st.markdown(answer)
+    # Answer
+    st.markdown("## 💬 Answer")
+    st.markdown(f'<div class="answer-box">{answer}</div>', unsafe_allow_html=True)
 
-    st.subheader("Agent reasoning")
+    # Agent reasoning summary
+    st.markdown("## 🧠 Agent reasoning")
+    mode = meta.get("mode")
+    ticket = meta.get("ticket") or {}
+    retrieved = meta.get("retrieved_chunks") or meta.get("retrieved_chunks") or meta.get(
+        "retrieved_chunks"
+    )  # backwards safety
 
-    if meta.get("mode") == "escalated":
-        ticket = meta.get("ticket", {}) or {}
-        st.markdown(
-            f"- **Decision**: escalate to human (insufficient / unclear docs)\n"
-            f"- **Tool used**: `escalate_ticket`\n"
-            f"- **Ticket ID**: `{ticket.get('ticket_id', 'n/a')}`\n"
+    reasoning_lines = []
+    if mode == "escalated":
+        reasoning_lines.append(
+            f"- **Decision**: escalate to human (insufficient / unclear docs)"
+        )
+        reasoning_lines.append(f"- **Tool used**: `escalate_ticket`")
+        reasoning_lines.append(
+            f"- **Ticket ID**: `{ticket.get('ticket_id', 'n/a')}`"
+        )
+        reasoning_lines.append(
             f"- **Assigned team**: {ticket.get('assigned_team', 'Tier-2 Support')}"
         )
     else:
-        st.markdown(
-            "- **Decision**: answered directly from retrieved documentation\n"
-            "- **No escalation triggered**"
+        reasoning_lines.append(
+            "- **Decision**: answered directly from retrieved documentation"
         )
+        reasoning_lines.append("- **No escalation triggered**")
 
-    with st.expander("Show retrieved context (top chunks the agent saw)"):
+    st.markdown(
+        '<div class="reason-box">' + "<br>".join(reasoning_lines) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Retrieved context (top chunks)
+    with st.expander("📄 Retrieved context (top chunks the agent consulted)", expanded=False):
         chunks = meta.get("retrieved_chunks") or []
         if chunks:
             for i, chunk in enumerate(chunks, start=1):
-                st.markdown(f"**Chunk {i}:**")
+                st.markdown(f"**Chunk {i}**")
                 st.code(chunk, language="markdown")
         else:
             st.markdown("_No documentation was retrieved for this query._")
 
-# ---------- How this demo works ----------
+# ---------- Knowledge base + explainer (bottom) ----------
 
-with st.expander("How this demo works (tech + behavior)"):
+st.markdown("---")
+
+with st.expander("📚 View full knowledge base (ground truth)", expanded=False):
+    st.markdown(get_corpus_markdown())
+
+with st.expander("ℹ️ How this demo works (tech + behavior)", expanded=False):
     st.markdown(
         """
-**Tech stack**
+**What this shows**
 
-- Python + Streamlit
-- OpenAI:
-  - `text-embedding-3-small` for embeddings
-  - `gpt-4.1-mini` for reasoning + tool calling
-- ChromaDB as in-memory vector store
-- Markdown docs in `/docs` as the internal KB
+- How to build a small, honest support agent:
+  - Ground answers in your internal docs.
+  - Let the model choose to escalate via a tool when the docs don’t cover it.
+  - Make the agent’s reasoning and evidence visible.
 
-**Agent behavior**
+**Architecture**
 
-1. User asks a question.
-2. We embed the question and retrieve the top relevant chunks from the KB.
-3. We pass the question + those chunks into the model.
+1. Markdown docs in `/docs` form the internal knowledge base.
+2. On startup, they’re embedded with `text-embedding-3-small` and stored in ChromaDB.
+3. For each question:
+   - We retrieve the top matching chunk(s).
+   - We call `gpt-4.1-mini` with:
+     - system prompt (support agent + rules),
+     - user question,
+     - retrieved context,
+     - a tool definition for `escalate_ticket`.
 4. The model either:
-   - Answers strictly from that documentation, or
-   - Calls the `escalate_ticket` tool when docs don't clearly answer / are risky.
-5. On escalation, a mock ticket is created instead of hallucinating policy.
-6. The UI exposes:
-   - the full ground-truth KB,
-   - the exact chunks the agent consulted,
-   - and whether it chose to answer or escalate.
-
-This is the pattern you'd use in production CX:
-reliable when grounded, honest when not.
+   - answers from the provided context, or
+   - calls `escalate_ticket`, which creates a mock escalation payload.
+5. The UI:
+   - highlights the final answer,
+   - summarizes the decision (answer vs escalate),
+   - shows the exact chunks consulted,
+   - exposes the full KB at the bottom for transparency.
         """
     )
