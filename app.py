@@ -1,14 +1,21 @@
 import streamlit as st
 from rag_agent import build_index, answer_question
 
+# ---------- Page config ----------
+
+st.set_page_config(
+    page_title="AskAI Agentic Support Demo",
+    layout="wide",
+)
+
 # ---------- One-time index build ----------
 
 if "index_built" not in st.session_state:
-    col, chunks = build_index()
+    _, chunks = build_index()
     st.session_state["index_built"] = True
     st.session_state["chunks"] = chunks
 
-st.set_page_config(page_title="AskAI Agentic Support Demo", layout="wide")
+# ---------- Header ----------
 
 st.title("AskAI Agentic Support Demo")
 st.caption(
@@ -20,26 +27,27 @@ st.caption(
 st.markdown("**Try one of these example questions:**")
 
 col1, col2, col3, col4 = st.columns(4)
+
 examples = {
-    "Refund policy (answer from docs)": "What is your refund policy?",
-    "Express shipping (answer from docs)": "How long does express shipping take?",
-    "Edge case refund (should escalate)": "Can I get a refund after 6 months?",
-    "Off-topic / risky (should escalate)": "What can I bring in my carry on?",
+    "refund_docs": "What is your refund policy?",
+    "shipping_docs": "How long does express shipping take?",
+    "refund_escalate": "Can I get a refund after 6 months?",
+    "carry_on_escalate": "What can I bring in my carry on?",
 }
 
-# Clicking a button sets the text input via session_state, then reruns
+# Buttons: set session state only. Streamlit will rerun automatically.
+
 if col1.button("Refund policy"):
-    st.session_state["user_question"] = examples["Refund policy (answer from docs)"]
-    st.experimental_rerun()
+    st.session_state["user_question"] = examples["refund_docs"]
+
 if col2.button("Express shipping"):
-    st.session_state["user_question"] = examples["Express shipping (answer from docs)"]
-    st.experimental_rerun()
+    st.session_state["user_question"] = examples["shipping_docs"]
+
 if col3.button("6-month refund (escalate)"):
-    st.session_state["user_question"] = examples["Edge case refund (should escalate)"]
-    st.experimental_rerun()
+    st.session_state["user_question"] = examples["refund_escalate"]
+
 if col4.button("Carry-on (escalate)"):
-    st.session_state["user_question"] = examples["Off-topic / risky (should escalate)"]
-    st.experimental_rerun()
+    st.session_state["user_question"] = examples["carry_on_escalate"]
 
 # ---------- Question input ----------
 
@@ -60,8 +68,8 @@ if question:
 
     st.subheader("Agent reasoning")
 
-    if meta["mode"] == "escalated":
-        ticket = meta.get("ticket", {})
+    if meta.get("mode") == "escalated":
+        ticket = meta.get("ticket", {}) or {}
         st.markdown(
             f"- **Decision**: escalate to human (insufficient / sensitive context)\n"
             f"- **Tool used**: `escalate_ticket`\n"
@@ -85,24 +93,24 @@ with st.expander("How this demo works (tech + behavior)"):
 **Tech stack**
 
 - Python + Streamlit
-- OpenAI for:
-  - `text-embedding-3-small` (vector embeddings)
-  - `gpt-4.1-mini` (reasoning + tool calling)
+- OpenAI:
+  - `text-embedding-3-small` for vector embeddings
+  - `gpt-4.1-mini` for reasoning + tool calling
 - ChromaDB as the in-memory vector store
-- Simple Markdown docs in `/docs` as the knowledge base
+- Markdown docs in `/docs` as the internal knowledge base
 
 **Agent behavior**
 
-1. Take the user question.
-2. Embed the question and run semantic search over the internal docs.
-3. Pass the top matches + question into the model.
+1. The user asks a question.
+2. The agent embeds the question and runs semantic search over the docs.
+3. It sends the question + top-matched snippets to the model.
 4. The model decides:
-   - If docs clearly answer: respond using that context.
+   - If the docs clearly answer: respond using that context.
    - If docs are missing/ambiguous/risky: call the `escalate_ticket` tool.
-5. On escalation, a mock ticket is created and shown, instead of hallucinating a policy.
-6. We expose retrieved context and the decision path to keep the agent explainable.
+5. On escalation, a mock ticket is created instead of hallucinating a policy.
+6. The UI exposes retrieved context + decision path for explainability.
 
-This mirrors a production pattern Ask-AI / CX teams care about:
+This mirrors a production CX pattern:
 grounded answers when safe, structured escalation when not.
         """
     )
