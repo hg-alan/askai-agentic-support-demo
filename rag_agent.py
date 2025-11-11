@@ -89,6 +89,52 @@ def get_corpus_markdown() -> str:
 
 
 def chunk_text(text: str, chunk_size: int = 800, overlap: int = 150) -> List[str]:
+    """
+    Chunk strategy optimized for small FAQ-style docs.
+
+    1. If the text contains markdown headings (`#`), split into sections:
+       each heading + its following lines becomes one chunk.
+    2. If no headings found, fall back to a simple sliding window.
+    """
+
+    lines = text.splitlines()
+    sections: List[str] = []
+    current: List[str] = []
+
+    # Section-based chunking for markdown-style docs
+    for line in lines:
+        if line.strip().startswith("#"):
+            # start of a new section
+            if current:
+                joined = " ".join(x.strip() for x in current if x.strip())
+                if joined:
+                    sections.append(joined)
+                current = []
+        if line.strip():  # skip pure blank lines
+            current.append(line)
+    # flush last
+    if current:
+        joined = " ".join(x.strip() for x in current if x.strip())
+        if joined:
+            sections.append(joined)
+
+    # If we successfully built sections, use them
+    if sections:
+        return sections
+
+    # Fallback: sliding window (for non-markdown/plain text)
+    words = text.split()
+    chunks = []
+    start = 0
+    while start < len(words):
+        end = start + chunk_size
+        chunk_words = words[start:end]
+        if not chunk_words:
+            break
+        chunks.append(" ".join(chunk_words))
+        start = end - overlap
+    return chunks
+
     words = text.split()
     chunks = []
     start = 0
