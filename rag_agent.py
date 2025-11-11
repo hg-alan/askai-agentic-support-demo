@@ -155,11 +155,16 @@ def build_index() -> Tuple[chromadb.api.models.Collection.Collection, int]:
 def retrieve_relevant_chunks(
     query: str,
     k: int = 4,
-    distance_threshold: float = 0.45,
+    similarity_threshold: float = 0.7,
 ) -> List[str]:
     """
-    Return only chunks that are close enough to be considered relevant.
-    If nothing is close, return an empty list.
+    Return chunks that are semantically relevant.
+
+    Uses cosine distance from Chroma:
+      similarity = 1 - distance
+
+    - If similarity >= similarity_threshold, we treat it as relevant.
+    - If distances are missing for any reason, we conservatively keep the chunks.
     """
     q_emb = get_embeddings(query)[0]
 
@@ -169,16 +174,26 @@ def retrieve_relevant_chunks(
         include=["documents", "distances"],
     )
 
-    docs = result.get("documents", [[]])[0]
-    dists = result.get("distances", [[]])[0]
+    docs = result.get("documents", [[]])[0] or []
+    dists = result.get("distances", [[]])[0] or []
+
+    # If Chroma didn't return distances, just return docs (best-effort)
+    if not dists or len(dists) != len(docs):
+        return docs
 
     relevant = []
     for doc, dist in zip(docs, dists):
-        # Chroma default is cosine distance; smaller = closer.
-        if dist <= distance_threshold:
+        # Defensive: some backends may return None
+        if dist is None:
+            relevant.append(doc)
+            continue
+
+        sim = 1.0 - float(dist)
+        if sim >= similarity_threshold:
             relevant.append(doc)
 
     return relevant
+
 
 
 # ---------- Agentic behavior: tool-calling ----------
