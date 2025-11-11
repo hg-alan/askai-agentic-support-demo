@@ -254,7 +254,7 @@ def answer_question(question: str) -> Tuple[str, str, Dict[str, Any]]:
     - Let LLM either answer from docs or call escalate_ticket.
     - Return (final_answer, concatenated_context, meta).
     """
-    chunks = retrieve_top_chunks(question, k=4)
+    chunks = retrieve_top_chunks(question, k=1)
     context = "\n\n".join(chunks)
 
     system_prompt = (
