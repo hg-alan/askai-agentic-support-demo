@@ -13,14 +13,11 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-/* Overall padding */
 .block-container {
     padding-top: 1.5rem;
     padding-bottom: 1.5rem;
     max-width: 1000px;
 }
-
-/* Headings */
 h1 {
     font-size: 2.4rem;
     margin-bottom: 0.25rem;
@@ -34,26 +31,21 @@ h3 {
     font-size: 1.05rem;
     margin-bottom: 0.35rem;
 }
-
-/* Caption / subtle text */
 .small-muted {
     font-size: 0.9rem;
     color: #9ca3af;
 }
-
-/* Pills for example buttons */
 .stButton > button {
     border-radius: 999px;
     padding: 0.35rem 1.1rem;
     border: 1px solid #374151;
     background-color: transparent;
+    font-size: 0.9rem;
 }
 .stButton > button:hover {
     border-color: #4b5563;
     background-color: #111827;
 }
-
-/* Answer + reasoning containers */
 .answer-box {
     padding: 0.9rem 1.0rem;
     border-radius: 10px;
@@ -72,15 +64,11 @@ h3 {
 .reason-box ul {
     margin: 0.25rem 0 0.25rem 1.1rem;
 }
-
-/* Expanders */
 div[data-testid="stExpander"] {
     border-radius: 10px !important;
     border: 1px solid #27272a !important;
     background-color: #020817 !important;
 }
-
-/* Code blocks inside expanders */
 code, pre {
     font-size: 0.85rem;
 }
@@ -96,6 +84,10 @@ if "index_built" not in st.session_state:
     st.session_state["index_built"] = True
     st.session_state["chunks"] = chunks
 
+# Ensure key exists for controlled input
+if "user_question" not in st.session_state:
+    st.session_state["user_question"] = ""
+
 # ---------- Header ----------
 
 st.title("AskAI Agentic Support Demo")
@@ -105,7 +97,6 @@ st.markdown(
     "</div>",
     unsafe_allow_html=True,
 )
-
 st.markdown("---")
 
 # ---------- Ask a question ----------
@@ -115,11 +106,10 @@ st.markdown("#### Ask a question")
 question = st.text_input(
     " ",
     key="user_question",
-    placeholder="Type a support question, e.g. \"What is your refund policy?\"",
+    placeholder='Type a support question, e.g. "What is your refund policy?"',
     label_visibility="collapsed",
 )
 
-# Suggested examples (under the input)
 st.markdown('<div class="small-muted">Or try one of these:</div>', unsafe_allow_html=True)
 
 c1, c2, c3, c4 = st.columns(4)
@@ -131,73 +121,73 @@ examples = {
     "carry_on_escalate": "What can I bring in my carry on?",
 }
 
+def set_example(q: str):
+    st.session_state["user_question"] = q
+    # Force a clean rerun with the new value
+    try:
+        st.rerun()
+    except Exception:
+        pass
+
 with c1:
     if st.button("Refund policy"):
-        st.session_state["user_question"] = examples["refund_docs"]
+        set_example(examples["refund_docs"])
 with c2:
     if st.button("Express shipping"):
-        st.session_state["user_question"] = examples["shipping_docs"]
+        set_example(examples["shipping_docs"])
 with c3:
     if st.button("Refund after 6 months"):
-        st.session_state["user_question"] = examples["refund_strict"]
+        set_example(examples["refund_strict"])
 with c4:
     if st.button("Carry-on (escalate)"):
-        st.session_state["user_question"] = examples["carry_on_escalate"]
+        set_example(examples["carry_on_escalate"])
 
 # ---------- Run agent + show answer ----------
 
-if st.session_state.get("user_question"):
-    q = st.session_state["user_question"]
+current_q = st.session_state.get("user_question", "").strip()
 
+if current_q:
     with st.spinner("Thinking (agent may escalate)..."):
-        answer, context, meta = answer_question(q)
+        answer, context, meta = answer_question(current_q)
 
-    # Answer
+    # Answer section
     st.markdown("## 💬 Answer")
     st.markdown(f'<div class="answer-box">{answer}</div>', unsafe_allow_html=True)
 
-    # Agent reasoning summary
+    # Agent reasoning
     st.markdown("## 🧠 Agent reasoning")
     mode = meta.get("mode")
     ticket = meta.get("ticket") or {}
-    retrieved = meta.get("retrieved_chunks") or meta.get("retrieved_chunks") or meta.get(
-        "retrieved_chunks"
-    )  # backwards safety
+    retrieved_chunks = meta.get("retrieved_chunks") or meta.get("retrieved_chunks") or []
 
-    reasoning_lines = []
     if mode == "escalated":
-        reasoning_lines.append(
-            f"- **Decision**: escalate to human (insufficient / unclear docs)"
-        )
-        reasoning_lines.append(f"- **Tool used**: `escalate_ticket`")
-        reasoning_lines.append(
-            f"- **Ticket ID**: `{ticket.get('ticket_id', 'n/a')}`"
-        )
-        reasoning_lines.append(
-            f"- **Assigned team**: {ticket.get('assigned_team', 'Tier-2 Support')}"
-        )
+        reasoning_lines = [
+            "- **Decision**: escalate to human (insufficient / unclear docs)",
+            "- **Tool used**: `escalate_ticket`",
+            f"- **Ticket ID**: `{ticket.get('ticket_id', 'n/a')}`",
+            f"- **Assigned team**: {ticket.get('assigned_team', 'Tier-2 Support')}",
+        ]
     else:
-        reasoning_lines.append(
-            "- **Decision**: answered directly from retrieved documentation"
-        )
-        reasoning_lines.append("- **No escalation triggered**")
+        reasoning_lines = [
+            "- **Decision**: answered directly from retrieved documentation",
+            "- **No escalation triggered**",
+        ]
 
     st.markdown(
         '<div class="reason-box">' + "<br>".join(reasoning_lines) + "</div>",
         unsafe_allow_html=True,
     )
 
-    # Retrieved context (top chunks)
+    # Retrieved context
     with st.expander("📄 Retrieved context (top chunks the agent consulted)", expanded=False):
-        chunks = meta.get("retrieved_chunks") or []
-        if chunks:
-            for i, chunk in enumerate(chunks, start=1):
+        if retrieved_chunks:
+            for i, chunk in enumerate(retrieved_chunks, start=1):
                 st.markdown(f"**Chunk {i}**")
                 st.code(chunk, language="markdown")
         else:
             st.markdown("_No documentation was retrieved for this query._")
 
-# ---------- Knowledge base + explainer (bottom) ----------
+# ---------- Knowledge base + explainer at bottom ----------
 
 st.markdown("---")
 
@@ -209,29 +199,30 @@ with st.expander("ℹ️ How this demo works (tech + behavior)", expanded=False)
         """
 **What this shows**
 
-- How to build a small, honest support agent:
-  - Ground answers in your internal docs.
-  - Let the model choose to escalate via a tool when the docs don’t cover it.
-  - Make the agent’s reasoning and evidence visible.
+- Answers are grounded in your internal docs.
+- If the docs don’t cover something (e.g. carry-on rules), the agent:
+  - refuses to hallucinate,
+  - calls a tool (`escalate_ticket`) to hand off to a human,
+  - and surfaces that decision transparently.
 
 **Architecture**
 
 1. Markdown docs in `/docs` form the internal knowledge base.
-2. On startup, they’re embedded with `text-embedding-3-small` and stored in ChromaDB.
+2. On startup, they’re embedded with `text-embedding-3-small` into ChromaDB.
 3. For each question:
    - We retrieve the top matching chunk(s).
    - We call `gpt-4.1-mini` with:
-     - system prompt (support agent + rules),
-     - user question,
-     - retrieved context,
-     - a tool definition for `escalate_ticket`.
+       - system prompt (support agent + rules),
+       - the user question,
+       - retrieved chunks,
+       - a tool definition for `escalate_ticket`.
 4. The model either:
    - answers from the provided context, or
-   - calls `escalate_ticket`, which creates a mock escalation payload.
-5. The UI:
+   - invokes `escalate_ticket`, which creates a mock escalation payload.
+5. This UI:
    - highlights the final answer,
-   - summarizes the decision (answer vs escalate),
+   - explains the decision,
    - shows the exact chunks consulted,
-   - exposes the full KB at the bottom for transparency.
+   - and exposes the full KB for transparency.
         """
     )
