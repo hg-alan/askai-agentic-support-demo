@@ -84,7 +84,7 @@ if "index_built" not in st.session_state:
     st.session_state["index_built"] = True
     st.session_state["chunks"] = chunks
 
-# Ensure key exists for controlled input
+# Ensure the controlled input key exists
 if "user_question" not in st.session_state:
     st.session_state["user_question"] = ""
 
@@ -103,7 +103,7 @@ st.markdown("---")
 
 st.markdown("#### Ask a question")
 
-question = st.text_input(
+st.text_input(
     " ",
     key="user_question",
     placeholder='Type a support question, e.g. "What is your refund policy?"',
@@ -121,36 +121,33 @@ examples = {
     "carry_on_escalate": "What can I bring in my carry on?",
 }
 
-def set_example(q: str):
-    st.session_state["user_question"] = q
-    # Force a clean rerun with the new value
-    try:
-        st.rerun()
-    except Exception:
-        pass
+example_query = None
 
 with c1:
     if st.button("Refund policy"):
-        set_example(examples["refund_docs"])
+        example_query = examples["refund_docs"]
 with c2:
     if st.button("Express shipping"):
-        set_example(examples["shipping_docs"])
+        example_query = examples["shipping_docs"]
 with c3:
     if st.button("Refund after 6 months"):
-        set_example(examples["refund_strict"])
+        example_query = examples["refund_strict"]
 with c4:
     if st.button("Carry-on (escalate)"):
-        set_example(examples["carry_on_escalate"])
+        example_query = examples["carry_on_escalate"]
+
+# Decide which question to answer this run:
+# - If an example button was clicked, use that.
+# - Otherwise, use whatever is in the text input.
+current_q = (example_query or st.session_state.get("user_question", "")).strip()
 
 # ---------- Run agent + show answer ----------
-
-current_q = st.session_state.get("user_question", "").strip()
 
 if current_q:
     with st.spinner("Thinking (agent may escalate)..."):
         answer, context, meta = answer_question(current_q)
 
-    # Answer section
+    # Answer
     st.markdown("## 💬 Answer")
     st.markdown(f'<div class="answer-box">{answer}</div>', unsafe_allow_html=True)
 
@@ -158,7 +155,7 @@ if current_q:
     st.markdown("## 🧠 Agent reasoning")
     mode = meta.get("mode")
     ticket = meta.get("ticket") or {}
-    retrieved_chunks = meta.get("retrieved_chunks") or meta.get("retrieved_chunks") or []
+    retrieved_chunks = meta.get("retrieved_chunks") or []
 
     if mode == "escalated":
         reasoning_lines = [
