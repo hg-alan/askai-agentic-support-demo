@@ -31,18 +31,22 @@ col1, col2, col3, col4 = st.columns(4)
 examples = {
     "refund_docs": "What is your refund policy?",
     "shipping_docs": "How long does express shipping take?",
-    "refund_escalate": "Can I get a refund after 6 months?",
-    "carry_on_escalate": "What can I bring in my carry on?",
+    "refund_strict": "Can I get a refund after 6 months?",   # grounded denial, no escalation
+    "carry_on_escalate": "What can I bring in my carry on?",  # out-of-scope → escalation
 }
+
+
+col1, col2, col3, col4 = st.columns(4)
 
 if col1.button("Refund policy"):
     st.session_state["user_question"] = examples["refund_docs"]
 if col2.button("Express shipping"):
     st.session_state["user_question"] = examples["shipping_docs"]
-if col3.button("6-month refund (escalate)"):
-    st.session_state["user_question"] = examples["refund_escalate"]
+if col3.button("Refund after 6 months"):
+    st.session_state["user_question"] = examples["refund_strict"]
 if col4.button("Carry-on (escalate)"):
     st.session_state["user_question"] = examples["carry_on_escalate"]
+
 
 # ---------- Show full KB (ground truth) ----------
 
