@@ -1,5 +1,5 @@
 import streamlit as st
-from rag_agent import build_index, answer_question
+from rag_agent import build_index, answer_question, get_corpus_markdown
 
 # ---------- Page config ----------
 
@@ -35,19 +35,19 @@ examples = {
     "carry_on_escalate": "What can I bring in my carry on?",
 }
 
-# Buttons: set session state only. Streamlit will rerun automatically.
-
 if col1.button("Refund policy"):
     st.session_state["user_question"] = examples["refund_docs"]
-
 if col2.button("Express shipping"):
     st.session_state["user_question"] = examples["shipping_docs"]
-
 if col3.button("6-month refund (escalate)"):
     st.session_state["user_question"] = examples["refund_escalate"]
-
 if col4.button("Carry-on (escalate)"):
     st.session_state["user_question"] = examples["carry_on_escalate"]
+
+# ---------- Show full KB (ground truth) ----------
+
+with st.expander("View full knowledge base (ground truth)"):
+    st.markdown(get_corpus_markdown())
 
 # ---------- Question input ----------
 
@@ -82,8 +82,15 @@ if question:
             "- **No escalation triggered**"
         )
 
-    with st.expander("Show retrieved context (for transparency)"):
-        st.code(context or "No relevant documentation found.", language="markdown")
+    # Retrieved chunks only (filtered)
+    with st.expander("Show retrieved context (top relevant chunks)"):
+        rel = meta.get("relevant_chunks") or []
+        if rel:
+            for i, chunk in enumerate(rel, start=1):
+                st.markdown(f"**Chunk {i}:**")
+                st.code(chunk, language="markdown")
+        else:
+            st.markdown("_No relevant documentation found for this query._")
 
 # ---------- How this demo works ----------
 
@@ -102,15 +109,17 @@ with st.expander("How this demo works (tech + behavior)"):
 **Agent behavior**
 
 1. The user asks a question.
-2. The agent embeds the question and runs semantic search over the docs.
-3. It sends the question + top-matched snippets to the model.
-4. The model decides:
-   - If the docs clearly answer: respond using that context.
-   - If docs are missing/ambiguous/risky: call the `escalate_ticket` tool.
+2. We embed the question and run semantic search over the KB.
+3. Only sufficiently similar chunks are treated as **relevant**.
+4. The model sees the question + relevant chunks:
+   - If they answer the question → respond from docs.
+   - If nothing relevant / question is risky → call `escalate_ticket`.
 5. On escalation, a mock ticket is created instead of hallucinating a policy.
-6. The UI exposes retrieved context + decision path for explainability.
+6. The UI shows:
+   - the full ground-truth KB,
+   - the specific chunks used,
+   - and whether/why the agent escalated.
 
-This mirrors a production CX pattern:
-grounded answers when safe, structured escalation when not.
+This is the exact pattern you want in production CX: grounded when confident, explicit escalation when not.
         """
     )

@@ -11,15 +11,38 @@ from openai import OpenAI
 
 # ---------- Setup ----------
 
-load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise RuntimeError("OPENAI_API_KEY not set in .env")
+def get_api_key() -> str:
+    """
+    Resolve OPENAI_API_KEY from:
+    1) Environment / .env (local dev)
+    2) Streamlit secrets (Streamlit Cloud)
+    """
+    load_dotenv()
+    key = os.getenv("OPENAI_API_KEY")
 
+    if not key:
+        try:
+            import streamlit as st  # only present in Streamlit env
+            key = st.secrets.get("OPENAI_API_KEY", None)
+        except Exception:
+            key = None
+
+    if not key:
+        raise RuntimeError(
+            "OPENAI_API_KEY not found. "
+            "Set it in a local .env file, or in Streamlit Cloud secrets as OPENAI_API_KEY."
+        )
+    return key
+
+
+api_key = get_api_key()
 client = OpenAI(api_key=api_key)
 
 chroma_client = chromadb.Client(Settings(anonymized_telemetry=False))
 COLLECTION_NAME = "support_kb"
+
+# keep a simple in-memory copy of KB for display
+_KB_DOCS_CACHE: List[Tuple[str, str]] = []
 
 
 def _get_or_create_collection():
@@ -29,13 +52,12 @@ def _get_or_create_collection():
     return chroma_client.create_collection(name=COLLECTION_NAME)
 
 
-# global collection handle used by retrieval
 collection = _get_or_create_collection()
 
-# ---------- Data loading & embeddings ----------
+# ---------- Data loading ----------
 
 
-def load_docs_from_folder(folder_path: str):
+def load_docs_from_folder(folder_path: str) -> List[Tuple[str, str]]:
     docs = []
     for path in glob.glob(os.path.join(folder_path, "**/*"), recursive=True):
         if os.path.isfile(path) and path.lower().endswith((".md", ".txt")):
@@ -44,6 +66,23 @@ def load_docs_from_folder(folder_path: str):
                 if text:
                     docs.append((os.path.basename(path), text))
     return docs
+
+
+def get_corpus_markdown() -> str:
+    """
+    Return the entire KB in a readable markdown form for the UI.
+    """
+    global _KB_DOCS_CACHE
+    if not _KB_DOCS_CACHE:
+        _KB_DOCS_CACHE = load_docs_from_folder("docs")
+
+    if not _KB_DOCS_CACHE:
+        return "No documentation loaded."
+
+    parts = []
+    for filename, text in _KB_DOCS_CACHE:
+        parts.append(f"### {filename}\n\n{text}")
+    return "\n\n---\n\n".join(parts)
 
 
 def chunk_text(text: str, chunk_size: int = 800, overlap: int = 150) -> List[str]:
@@ -70,23 +109,32 @@ def get_embeddings(texts: List[str]):
     return [d.embedding for d in resp.data]
 
 
+# ---------- Indexing ----------
+
+
 def build_index() -> Tuple[chromadb.api.models.Collection.Collection, int]:
-    """Rebuilds the vector index from ./docs. Returns (collection, num_chunks)."""
-    # Drop existing collection for determinism
+    """
+    Rebuilds the vector index from ./docs. Returns (collection, num_chunks).
+    """
+    global _KB_DOCS_CACHE
+
+    # reset KB cache
+    _KB_DOCS_CACHE = load_docs_from_folder("docs")
+
+    if not _KB_DOCS_CACHE:
+        raise RuntimeError("No documents found in ./docs. Add some .md or .txt files.")
+
+    # drop existing collection to keep behavior deterministic
     for c in chroma_client.list_collections():
         if c.name == COLLECTION_NAME:
             chroma_client.delete_collection(name=COLLECTION_NAME)
 
     col = chroma_client.create_collection(name=COLLECTION_NAME)
 
-    docs = load_docs_from_folder("docs")
-    if not docs:
-        raise RuntimeError("No documents found in ./docs. Add some .md or .txt files.")
-
     ids, contents, embeddings = [], [], []
     idx = 0
 
-    for filename, text in docs:
+    for filename, text in _KB_DOCS_CACHE:
         for chunk in chunk_text(text):
             ids.append(f"{filename}-{idx}")
             contents.append(chunk)
@@ -95,29 +143,50 @@ def build_index() -> Tuple[chromadb.api.models.Collection.Collection, int]:
 
     col.add(ids=ids, documents=contents, embeddings=embeddings)
 
-    # update global reference used by retrieval
     global collection
     collection = col
 
     return col, len(ids)
 
 
-def retrieve_context(query: str, k: int = 4) -> str:
+# ---------- Retrieval ----------
+
+
+def retrieve_relevant_chunks(
+    query: str,
+    k: int = 4,
+    distance_threshold: float = 0.45,
+) -> List[str]:
+    """
+    Return only chunks that are close enough to be considered relevant.
+    If nothing is close, return an empty list.
+    """
     q_emb = get_embeddings(query)[0]
+
     result = collection.query(
         query_embeddings=[q_emb],
         n_results=k,
+        include=["documents", "distances"],
     )
+
     docs = result.get("documents", [[]])[0]
-    return "\n\n".join(docs)
+    dists = result.get("distances", [[]])[0]
+
+    relevant = []
+    for doc, dist in zip(docs, dists):
+        # Chroma default is cosine distance; smaller = closer.
+        if dist <= distance_threshold:
+            relevant.append(doc)
+
+    return relevant
 
 
-# ---------- Agentic behavior: tool (function) calling ----------
+# ---------- Agentic behavior: tool-calling ----------
+
 
 def escalate_ticket(user_question: str, retrieved_context: str) -> Dict[str, Any]:
     """
-    Mock side-effect to demonstrate agentic behavior.
-    In a real system this would hit Zendesk/Jira/Slack/etc.
+    Mock escalation side-effect.
     """
     ticket_id = str(uuid.uuid4())[:8]
     print(f"\n[ESCALATION] Created ticket {ticket_id} for question: {user_question}\n")
@@ -159,14 +228,14 @@ TOOLS = [
 
 def answer_question(question: str) -> Tuple[str, str, Dict[str, Any]]:
     """
-    Agentic answer:
-    - Retrieve context
-    - Let LLM decide to:
+    - Retrieve relevant chunks (may be empty).
+    - Let the LLM decide:
         - answer from docs, OR
-        - call escalate_ticket (tool) for human escalation.
-    - Return (final_answer, retrieved_context, meta).
+        - call escalate_ticket tool.
+    - Return (final_answer, concatenated_context, meta).
     """
-    context = retrieve_context(question, k=4)
+    relevant_chunks = retrieve_relevant_chunks(question, k=4)
+    context = "\n\n".join(relevant_chunks)
 
     system_prompt = (
         "You are a precise, trustworthy support agent for an imaginary SaaS company.\n"
@@ -177,18 +246,21 @@ def answer_question(question: str) -> Tuple[str, str, Dict[str, Any]]:
         "Never invent policies. Prefer escalation when unsure."
     )
 
+    context_for_prompt = context if context else "[NO RELEVANT DOCS FOUND]"
+
     user_content = (
         f"User question:\n{question}\n\n"
-        f"Retrieved documentation:\n{context or '[NO RELEVANT DOCS FOUND]'}"
+        f"Retrieved documentation:\n{context_for_prompt}"
     )
 
     meta: Dict[str, Any] = {
         "mode": "answer_from_docs",
         "tool_called": None,
         "ticket": None,
+        "relevant_chunks": relevant_chunks,
     }
 
-    # First model call: decide whether to answer or call a tool
+    # First call: decide answer vs tool
     first = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
@@ -202,7 +274,7 @@ def answer_question(question: str) -> Tuple[str, str, Dict[str, Any]]:
 
     msg = first.choices[0].message
 
-    # If the model chose to call a tool → execute it and do a second call
+    # Tool path
     if msg.tool_calls:
         for tool_call in msg.tool_calls:
             if tool_call.function.name == "escalate_ticket":
@@ -234,6 +306,6 @@ def answer_question(question: str) -> Tuple[str, str, Dict[str, Any]]:
                 final = second.choices[0].message.content.strip()
                 return final, context, meta
 
-    # Otherwise, model answered directly from docs
+    # Direct answer path
     final_answer = (msg.content or "").strip()
     return final_answer, context, meta
