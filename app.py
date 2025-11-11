@@ -71,26 +71,25 @@ if question:
     if meta.get("mode") == "escalated":
         ticket = meta.get("ticket", {}) or {}
         st.markdown(
-            f"- **Decision**: escalate to human (insufficient / sensitive context)\n"
+            f"- **Decision**: escalate to human (insufficient / unclear docs)\n"
             f"- **Tool used**: `escalate_ticket`\n"
             f"- **Ticket ID**: `{ticket.get('ticket_id', 'n/a')}`\n"
             f"- **Assigned team**: {ticket.get('assigned_team', 'Tier-2 Support')}"
         )
     else:
         st.markdown(
-            "- **Decision**: answer directly from retrieved documentation\n"
+            "- **Decision**: answered directly from retrieved documentation\n"
             "- **No escalation triggered**"
         )
 
-    # Retrieved chunks only (filtered)
-    with st.expander("Show retrieved context (top relevant chunks)"):
-        rel = meta.get("relevant_chunks") or []
-        if rel:
-            for i, chunk in enumerate(rel, start=1):
+    with st.expander("Show retrieved context (top chunks the agent saw)"):
+        chunks = meta.get("retrieved_chunks") or []
+        if chunks:
+            for i, chunk in enumerate(chunks, start=1):
                 st.markdown(f"**Chunk {i}:**")
                 st.code(chunk, language="markdown")
         else:
-            st.markdown("_No relevant documentation found for this query._")
+            st.markdown("_No documentation was retrieved for this query._")
 
 # ---------- How this demo works ----------
 
@@ -101,25 +100,26 @@ with st.expander("How this demo works (tech + behavior)"):
 
 - Python + Streamlit
 - OpenAI:
-  - `text-embedding-3-small` for vector embeddings
+  - `text-embedding-3-small` for embeddings
   - `gpt-4.1-mini` for reasoning + tool calling
-- ChromaDB as the in-memory vector store
-- Markdown docs in `/docs` as the internal knowledge base
+- ChromaDB as in-memory vector store
+- Markdown docs in `/docs` as the internal KB
 
 **Agent behavior**
 
-1. The user asks a question.
-2. We embed the question and run semantic search over the KB.
-3. Only sufficiently similar chunks are treated as **relevant**.
-4. The model sees the question + relevant chunks:
-   - If they answer the question → respond from docs.
-   - If nothing relevant / question is risky → call `escalate_ticket`.
-5. On escalation, a mock ticket is created instead of hallucinating a policy.
-6. The UI shows:
+1. User asks a question.
+2. We embed the question and retrieve the top relevant chunks from the KB.
+3. We pass the question + those chunks into the model.
+4. The model either:
+   - Answers strictly from that documentation, or
+   - Calls the `escalate_ticket` tool when docs don't clearly answer / are risky.
+5. On escalation, a mock ticket is created instead of hallucinating policy.
+6. The UI exposes:
    - the full ground-truth KB,
-   - the specific chunks used,
-   - and whether/why the agent escalated.
+   - the exact chunks the agent consulted,
+   - and whether it chose to answer or escalate.
 
-This is the exact pattern you want in production CX: grounded when confident, explicit escalation when not.
+This is the pattern you'd use in production CX:
+reliable when grounded, honest when not.
         """
     )
